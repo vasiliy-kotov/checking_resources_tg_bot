@@ -15,6 +15,6 @@ class MyCustomError(Exception):
         """Вызов метода str в MyCustomError."""
         print('Вызов метода str MyCustomError')
         if self.message:
-            return f'MyCustomError: "{self.message}".'  # mb raise ???
+            return f'MyCustomError: "{self.message}".'
         else:
-            return 'MyCustomError была вызвана.'  # mb raise ???
+            return 'MyCustomError была вызвана.'
