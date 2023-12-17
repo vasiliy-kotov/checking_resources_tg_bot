@@ -173,7 +173,7 @@ if __name__ == '__main__':
 
     # Хэндлер для управления лог-файлами
     handler = RotatingFileHandler(
-        'homework.log',
+        'bot.log',
         maxBytes=50000000,
         backupCount=2,
     )
