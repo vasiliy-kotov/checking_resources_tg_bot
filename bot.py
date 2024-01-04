@@ -82,26 +82,20 @@ def send_message(bot, message):
             logger.info(f'В чат отправлено сообщение - "{message}".')
 
 
-def get_resource_answer(current_timestamp, endpoint):
+def get_resource_answer(endpoint):
     """Делает запрос к эндпоинту.
 
     В качестве параметра функция получает временную метку и ендпоинт.
     """
     bot = Bot(token=TELEGRAM_TOKEN)
-    global status_bank
-    status_bank = ''
     response = requests.get(endpoint)
     status_code = response.status_code
     if response.status_code != HTTPStatus.OK:
         message_status_code_not_200 = (
             f'Ошибка запроса к ресурсу {endpoint}. Код - {status_code}.'
         )
-        if message_status_code_not_200 != status_bank:
-            logger.error(message_status_code_not_200)
-            send_message(bot, message_status_code_not_200)
-            status_bank = message_status_code_not_200
-        else:
-            logger.error(message_status_code_not_200)
+        logger.error(message_status_code_not_200)
+        send_message(bot, message_status_code_not_200)
     else:
         logger.info(f'Ресурс - "{endpoint}", status_code - "{status_code}".')
 
@@ -130,15 +124,14 @@ def main():
         while True:
             try:
                 bot = Bot(token=TELEGRAM_TOKEN)
-                current_timestamp = 1646906700
                 for endp in ENDPOINT:
                     logger.info(f'Проверяем статус сайта "{endp}".')
-                    get_resource_answer(current_timestamp, endp)
+                    get_resource_answer(endp)
             except ConnectionError as conerror:
                 message = ('ConnectionError при запуске функции main: '
-                           + f'{conerror}')
+                           + f'{conerror}.')
                 logger.error(message)
-                send_message_admin(bot, message)
+                send_message(bot, message)
                 logger.exception(message, exc_info=True)
                 raise ConnectionError(message)
             except TypeError as typerror:
@@ -159,7 +152,7 @@ def main():
                 send_message_admin(bot, message)
                 logger.exception(message, exc_info=True)
                 raise MyCustomError(message)
-            else:
+            finally:
                 time.sleep(RETRY_TIME)
 
 
