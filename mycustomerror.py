@@ -11,7 +11,6 @@ class MyCustomError(Exception):
             self.message = None
 
     def __str__(self):
-        """Вызов метода str в MyCustomError."""
         if self.message:
             return f'MyCustomError: "{self.message}".'
         else:
