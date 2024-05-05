@@ -149,3 +149,6 @@ dmypy.json
 # Настройки проекта и файлы для тестирования
 setup.cfg
 drafts/
+
+# gitignore
+.gitignore
