@@ -16,17 +16,12 @@ max-complexity = 10
 retry_time = 4
 
 [tg_setting]
-admin_tg_id = 515611592
-subscription_tg_ids = 341070290,515611592
+admin_tg_id = 123456789
+subscription_tg_ids = 123456789,012345678
 tzone = Europe/Moscow
 endpoints = 
 	https://общее-дело.рф/,
 	https://vk.com/obsheedelorf,
-	https://ok.ru/obsheedelo,
-	https://www.youtube.com/user/proektobsheedelo?sub_confirmation=1,
-	https://rutube.ru/channel/479524/,
-	https://metodic.obshee-delo.ru/,
-	https://obshee-delo.club/,
 
 [log_setting]
 log_level = INFO

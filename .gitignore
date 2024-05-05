@@ -109,7 +109,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-draft.py
+Pipfile.lock
 
 # Spyder project settings
 .spyderproject
@@ -146,7 +146,6 @@ dmypy.json
 
 .mypy_cache
 
-# папки со статикой и медиа
-static/
-posts/static/
-media/
+# Настройки проекта и файлы для тестирования
+setup.cfg
+drafts/

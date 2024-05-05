@@ -3,10 +3,14 @@
 import datetime
 import logging
 import os
+import re
 import sys
 import time
 import pytz
 import requests
+import configparser
+import locale
+
 
 from dotenv import load_dotenv
 from http import HTTPStatus
@@ -17,44 +21,39 @@ from telegram.ext import CommandHandler, Updater
 
 
 load_dotenv()
+config = configparser.ConfigParser()
+config.read('setup.cfg', encoding='utf-8')
+locale.setlocale(locale.LC_TIME, 'ru')
+
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_SUBSCRIBER_IDS = (os.getenv('TELEGRAM_SUBSCRIBER_IDS'))
-TELEGRAM_ADMIN_ID = (os.getenv('TELEGRAM_ADMIN_ID'))
-RETRY_TIME = 14400  # В секундах
-ENDPOINT = [
-    'https://общее-дело.рф/',
-    'https://общее-дело.рф/123',
-    'https://vk.com/obsheedelorf',
-    'https://ok.ru/obsheedelo',
-    'https://www.youtube.com/user/proektobsheedelo?sub_confirmation=1',
-    'https://rutube.ru/channel/479524/',
-    'https://общеедело-про.конкурсы.рф/',
-    'https://metodic.obshee-delo.ru/',
-    'https://obshee-delo.club/',
-    # 'https://12312werwe3.ru/'  # для теста не доступного сайта
-]
-RESULTS = []
-TZ_MOSCOW = pytz.timezone('Europe/Moscow')
+LOG_LEVEL = config['log_setting']['log_level']
+FORMAT_LOG = config['log_setting']['log_format']
+LOGS_DIRECTORY_PATH = config['log_setting']['logs_directory_path']
+LOG_SIZE = int(config['log_setting']['log_size'])
+BACKUP_СOUNT = int(config['log_setting']['backup_сount'])
+TELEGRAM_ADMIN_ID = config['tg_setting']['admin_tg_id']
+RETRY_TIME = int(config['default']['retry_time'])
+TZ_MOSCOW = pytz.timezone(config['tg_setting']['tzone'])
 DT_MOSCOW = datetime.datetime.now(TZ_MOSCOW)
+ENDPOINTS = []
+CHECK_RESULT = []
+BUTTONS = ReplyKeyboardMarkup(
+    [['/bot_settings', '/last_check', '/subscribe']],
+    resize_keyboard=True,
+)
 
 
-logger = logging.getLogger(__name__)
-
-
-def get_telegram_id():
-    """Достаёт из секретного файла перечень id учётных запписей телеграм."""
-    logger.info('***Работает get_telegram_id.')
-    logger.info('Читаем файл list_tg_ids.txt.')
-    with open('list_tg_ids.txt', 'r') as f:
-        for line in f:
-            logger.info(f'Линия в файле - {line}')
-            if line.find('=') != -1:
-                ids = line[line.find('=') + 1:]
-                telegram_subscriber_ids = [int(t) for t in ids.split(',')]
-        f.close()
-    logger.info(
-        'Список ИД учёток Телеграм подписчиков из get_telegram_id - '
+def get_subscribers_ids():
+    """Достаёт из файла setup.cfg перечень id учётных запписей телеграм."""
+    logger.info('***Работает get_subscribers_ids.')
+    telegram_subscriber_ids = []
+    tg_ids = config['tg_setting']['subscription_tg_ids'].split(',')
+    for tg_id in tg_ids:
+        if isinstance(int(tg_id), int):
+            telegram_subscriber_ids.append(int(tg_id))
+    logger.debug(
+        'Список ИД учёток Телеграм подписчиков из get_subscribers_ids - '
         + f'{telegram_subscriber_ids}.')
     return telegram_subscriber_ids
 
@@ -66,9 +65,12 @@ def send_message_admin(bot, message):
         message = f'Ошибка инициализации объекта bot - {bot}.'
         logger.error(message, exc_info=True)
         raise MyCustomError(message)
+    else:
+        bot.send_message(chat_id=TELEGRAM_ADMIN_ID, text=message,)
+        logger.info(f'Админу отправлено сообщение - "{message}".')
 
 
-def send_message(bot, message, telegram_subscriber_ids_list):
+def send_message(bot, message, telegram_ids):
     """Отправляет сообщение в Telegram-чаты участников процесса."""
     logger.info('***Работает send_message.')
     if not bot:
@@ -76,51 +78,40 @@ def send_message(bot, message, telegram_subscriber_ids_list):
         logger.error(message, exc_info=True)
         raise MyCustomError(message)
     else:
-        for t in telegram_subscriber_ids_list:
+        for t in telegram_ids:
             bot.send_message(chat_id=t, text=message,)
-            logger.info(f'В чат {t} отправлено сообщение - "{message}".')
+        logger.info(f'Получателям отправлено сообщение - "{message}".')
 
 
-def check_status_resource(bot, endpoint, telegram_subscriber_ids_list):
+def check_status_resource(bot, endpoint, telegram_ids):
     """Делает запрос к эндпоинту.
 
     В качестве параметра функция получает временную метку и ендпоинт. Делает
-    запрос и, если статус ответа на 200, то посылает сообщение пользоватлю из
+    запрос и, если статус ответа не 200, то посылает сообщение пользоватлю из
     списка.
     """
     logger.info('***Работает check_status_resource.')
     response = requests.get(endpoint)
+    logger.info(f'response - "{response}". type(response) - {type(response)}.')
     status_code = response.status_code
     if response.status_code != HTTPStatus.OK:
         message_status_code_not_200 = (
-            f'Ошибка запроса к ресурсу {endpoint}. Код - {status_code}.')
+            f'Ошибка запроса к сайту "{endpoint}". Код статуса - '
+            + f'{status_code}.')
         logger.error(message_status_code_not_200)
         send_message(
-            bot, message_status_code_not_200, telegram_subscriber_ids_list)
+            bot, message_status_code_not_200, telegram_ids)
     else:
-        logger.info(f'Ресурс - "{endpoint}", status_code - "{status_code}".')
+        logger.info(f'Сайтттт - "{endpoint}". Код статуса - {status_code}.')
     return status_code
 
 
-def check_tokens(telegram_subscriber_ids_list):
+def check_tokens():
     """Проверяет доступность переменных окружения для работы программы."""
     logger.info('***Работает check_tokens.')
-    logger.info(f'TELEGRAM_TOKEN - {TELEGRAM_TOKEN}.')
-    logger.info(
-        f'telegram_subscriber_ids_list - {telegram_subscriber_ids_list}.')
-    logger.info(f'TELEGRAM_ADMIN_ID - {TELEGRAM_ADMIN_ID}.')
-    return all(
-        [TELEGRAM_TOKEN, telegram_subscriber_ids_list, TELEGRAM_ADMIN_ID])
-
-
-def last_check_message(results):
-    """Возвращает результаты послденей проверки из константы RESULTS."""
-    logger.info('***Работает last_check_message.')
-    results_str = ''
-    for r in results:
-        results_str += (r + ' ')
-    logger.info(f'Результат last_check_message - {results_str}.')
-    return results_str
+    logger.debug(f'TELEGRAM_TOKEN - {TELEGRAM_TOKEN}.')
+    logger.debug(f'TELEGRAM_ADMIN_ID - {TELEGRAM_ADMIN_ID}.')
+    return all([TELEGRAM_TOKEN, TELEGRAM_ADMIN_ID])
 
 
 def last_check(update, context):
@@ -128,15 +119,11 @@ def last_check(update, context):
     logger.info('***Работает last_check.')
     chat = update.effective_chat
     name = update.message.chat.username
-    button = ReplyKeyboardMarkup(
-        [['/bot_settings', '/last_check', '/subscribe']],
-        resize_keyboard=True
-    )
-    message = last_check_message(RESULTS)
+    message = ''.join(CHECK_RESULT)
     context.bot.send_message(
         chat_id=chat.id,
         text=message,
-        reply_markup=button
+        reply_markup=BUTTONS
     )
     logger.info(
         f'Запрошены результаты последней проверки. Пользователь {name}.')
@@ -145,41 +132,22 @@ def last_check(update, context):
 def bot_settings(update, context):
     """Возвращает список проверяемых сайтов и периодичность проверки."""
     logger.info('***Работает bot_settings.')
-
-    def min_or_hour(amount_time):
-        """Анализ размера времени.
-
-        Берёт время в секундах и возвращает строки со значением времени и 
-        признака минут или часов.
-        """
-        logger.info('***Работает min_or_hour.')
-        time_str = ''
-        if (amount_time / 60) > 60:
-            time_str += (str(amount_time / 3600) + ' ч')
-        elif amount_time < 60:
-            time_str += (str(amount_time / 60) + ' м')
-        logger.info(f'Результат min_or_hour - {time_str}.')
-        return time_str
-
     chat = update.effective_chat
     name = update.message.chat.username
-    button = ReplyKeyboardMarkup(
-        [['/bot_settings', '/last_check', '/subscribe']],
-        resize_keyboard=True
-    )
+    part_name = name[:4]
     endpoints_str = ''
-    for e in ENDPOINT:
+    for e in ENDPOINTS:
         endpoints_str += e + '\n'
-    time = min_or_hour(RETRY_TIME)
     message = (
         f'Список проверямых сайтов:\n{endpoints_str}'
-        + f'Периодичность проверки - 1 р. в {time}.')
+        + f'Периодичность проверки - 1 раз в {RETRY_TIME} ч.')
     context.bot.send_message(
         chat_id=chat.id,
         text=message,
-        reply_markup=button
+        reply_markup=BUTTONS
     )
-    logger.info(f'Запрошены настройки бота. Пользователь {name}.')
+    logger.info(
+        f'Запрошены настройки бота. Часть имени пользователя {part_name}.')
 
 
 def subscribe(update, context):
@@ -188,56 +156,55 @@ def subscribe(update, context):
     chat = update.effective_chat
     name = update.message.chat.username
     tg_id = update.message.chat.id
-    logger.info(f'tg_id - {tg_id}')
-    button = ReplyKeyboardMarkup(
-        [['/bot_settings', '/last_check', '/subscribe']],
-        resize_keyboard=True
-    )
-    TELEGRAM_SUBSCRIBER_IDS_LIST = get_telegram_id()
-    logger.info(
-        f'TELEGRAM_SUBSCRIBER_IDS_LIST - {TELEGRAM_SUBSCRIBER_IDS_LIST}.')
-    NEW_TELEGRAM_SUBSCRIBER_IDS = 'TELEGRAM_SUBSCRIBER_IDS='
-    if tg_id in TELEGRAM_SUBSCRIBER_IDS_LIST:
-        for i in range(0, len(TELEGRAM_SUBSCRIBER_IDS_LIST)):
-            if TELEGRAM_SUBSCRIBER_IDS_LIST[i] == tg_id:
-                del TELEGRAM_SUBSCRIBER_IDS_LIST[i]
-                logger.info(
-                    'TELEGRAM_SUBSCRIBER_IDS_LIST после удаления id - '
-                    + f'{TELEGRAM_SUBSCRIBER_IDS_LIST}.')
-                NEW_TELEGRAM_SUBSCRIBER_IDS += ', '.join(
-                    str(x) for x in TELEGRAM_SUBSCRIBER_IDS_LIST)
-                logger.info(
-                    'NEW_TELEGRAM_SUBSCRIBER_IDS id после удаления - '
-                    + f'{NEW_TELEGRAM_SUBSCRIBER_IDS}.')
-                with open('list_tg_ids.txt', 'w') as f:
-                    f.write(NEW_TELEGRAM_SUBSCRIBER_IDS)
-                    f.close()
-                message = ('Вы отписались от рассылки сообщений от бота.')
-                logger.info(f'Пользователь {name} отписалися от рассылки.')
+    logger.debug(f'tg_id - {tg_id}')
+    telegram_ids = get_subscribers_ids()
+    logger.debug(f'telegram_ids - {telegram_ids}.')
+    tg_setting = config['tg_setting']
+    new_tg_setting = ''
+    if tg_id in telegram_ids:
+        telegram_ids.remove(tg_id)
+        logger.debug('telegram_ids после удаления id - '
+                     + f'{telegram_ids}.')
+        for i in range(len(telegram_ids)):
+            if i != (len(telegram_ids) - 1):
+                new_tg_setting += (str(telegram_ids[i]) + ',')
+            else:
+                new_tg_setting += str(telegram_ids[i])
+        message = ('Вы отписались от рассылки сообщений от бота.')
+        logger.info(f'Пользователь {name} отписалися от рассылки.')
     else:
-        NEW_TELEGRAM_SUBSCRIBER_IDS = 'TELEGRAM_SUBSCRIBER_IDS='
-        NEW_TELEGRAM_SUBSCRIBER_IDS += ', '.join(
-            str(x) for x in TELEGRAM_SUBSCRIBER_IDS_LIST)
-        NEW_TELEGRAM_SUBSCRIBER_IDS += f',{tg_id}\n'
-        with open('list_tg_ids.txt', 'w') as f:
-            f.write(NEW_TELEGRAM_SUBSCRIBER_IDS)
-            f.close()
+        telegram_ids.append(tg_id)
+        logger.debug('telegram_ids id после добавления - '
+                     + f'{telegram_ids}.')
+        for i in range(len(telegram_ids)):
+            if i != (len(telegram_ids) - 1):
+                new_tg_setting += (str(telegram_ids[i]) + ',')
+            else:
+                new_tg_setting += str(telegram_ids[i])
         message = ('Вы подписались на рассылку сообщений от бота.')
         logger.info(f'Пользователь {name} подписался на рассылку.')
+    tg_setting['subscription_tg_ids'] = new_tg_setting
+    with open('setup.cfg', 'w', encoding='utf-8') as configfile:
+        config.write(configfile)
     context.bot.send_message(
         chat_id=chat.id,
         text=message,
-        reply_markup=button
+        reply_markup=BUTTONS
     )
 
 
 def main():
     """Основная логика работы бота."""
+    global ENDPOINTS, CHECK_RESULT
     logger.info('***Работает main.')
-    logger.info(f'Список Интернет-ресурсов - {[endp for endp in ENDPOINT]}.')
-    global RESULTS
-    TELEGRAM_SUBSCRIBER_IDS_LIST = get_telegram_id()
-    if not check_tokens(TELEGRAM_SUBSCRIBER_IDS_LIST):
+    endpoints = config.get('tg_setting', 'endpoints')
+    endpoints = re.split('\\n|,', endpoints)
+    for endpoint in endpoints:
+        if isinstance(endpoint, str) and len(endpoint) != 0:
+            ENDPOINTS.append(endpoint)
+    logger.info(f'Список Интернет-сайтов - {[endp for endp in ENDPOINTS]}.')
+    telegram_ids = get_subscribers_ids()
+    if not check_tokens():
         message = (
             f'Проверка токенов завершилась с ошибкой - {check_tokens()}.')
         logger.critical(message, exc_info=True)
@@ -247,18 +214,46 @@ def main():
         try:
             bot = Bot(token=TELEGRAM_TOKEN)
             updater = Updater(token=TELEGRAM_TOKEN)
-            RESULTS.append(f'Дата и время последней проверки - {DT_MOSCOW}.\n')
-            for endp in ENDPOINT:
+            date_time = DT_MOSCOW.strftime('%d.%m.%Y %H:%M')
+            logger.info(f'date_time - {date_time}.')
+            CHECK_RESULT.clear()
+            intro = (
+                'Результаты последней проверки.\n'
+                + f'Дата и время - {date_time} (мск).\n'
+                + 'Статусы по сайтам:\n'
+            )
+            logger.info(f'intro - {intro}.')
+            CHECK_RESULT.append(intro)
+            logger.info(f'CHECK_RESULT - {CHECK_RESULT}.')
+            SUCCESSFUL_RESULT = ''
+            UNSUCCESSFUL_RESULT = ''
+            for endp in ENDPOINTS:
                 logger.info(f'Проверяем статус сайта "{endp}".')
                 check = check_status_resource(
-                    bot, endp, TELEGRAM_SUBSCRIBER_IDS_LIST)
-                RESULTS.append(f'Сайт {endp}. Результат - {check}.\n')
+                    bot, endp, telegram_ids)
+                logger.info(f'check - {check}. type(check) - {type(check)}.')
+                if check == 200:
+                    SUCCESSFUL_RESULT += (f'{check} - {endp}\n')
+                    logger.info(
+                        f'UNSUCCESSFUL_RESULT - {UNSUCCESSFUL_RESULT}.')
+                else:
+                    UNSUCCESSFUL_RESULT += f'{check} - {endp}\n'
+                    logger.info(f'SUCCESSFUL_RESULT - {SUCCESSFUL_RESULT}.')
+            logger.info(f'CHECK_RESULT - {CHECK_RESULT}.')
+            if len(UNSUCCESSFUL_RESULT) > 0:
+                CHECK_RESULT.append('    ! Проблемы с доступом:\n')
+                CHECK_RESULT.append(UNSUCCESSFUL_RESULT)
+            CHECK_RESULT.append('    Успешный доступ:\n')
+            CHECK_RESULT.append(SUCCESSFUL_RESULT)
+            logger.info(f'CHECK_RESULT - {CHECK_RESULT}.')
         except requests.exceptions.ConnectionError as conerror:
-            message = ('ConnectionError при запуске функции main: \n'
-                       + f'"{conerror}".\nНе удаётся установить соединение '
-                       + f'с сайтом. -\n{endp}.')
+            message = (
+                'ConnectionError при запуске функции main:\n'
+                + f'"{conerror}".\nНе удаётся установить соединение '
+                + f'с сайтом. -\n"{endp}".'
+            )
             logger.error(message)
-            send_message(bot, message, TELEGRAM_SUBSCRIBER_IDS_LIST)
+            send_message(bot, message, telegram_ids)
             send_message_admin(bot, message)
             logger.exception(message, exc_info=True)
             raise MyCustomError(message)
@@ -282,31 +277,24 @@ def main():
             updater.dispatcher.add_handler(
                 CommandHandler('bot_settings', bot_settings))
             updater.start_polling()
-            time.sleep(RETRY_TIME)
+            time.sleep(RETRY_TIME * 3600)
 
 
 if __name__ == '__main__':
-    logger.setLevel(logging.DEBUG)
 
-    formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s -'
-        + ' %(funcName)s - %(lineno)d'
-    )
-
-    # Хэндлер для управления лог-файлами
+    logger = logging.getLogger(__name__)
+    logger.setLevel(LOG_LEVEL)
+    formatter = logging.Formatter(FORMAT_LOG)
     handler = RotatingFileHandler(
-        'bot.log',
-        maxBytes=50000000,
-        backupCount=2,
+        (LOGS_DIRECTORY_PATH + 'bot.log'),
+        maxBytes=LOG_SIZE,
+        backupCount=BACKUP_СOUNT,
     )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
-    logger.info('********************\nНачало журнала.')
-    logger.info('Формат записей:\n%(asctime)s - %(levelname)s - %(message)s -'
-                + ' %(funcName)s - %(lineno)d')
+    logger.info('***\nСтарт работы бота проверки ресурсов ОД.')
 
     main()
