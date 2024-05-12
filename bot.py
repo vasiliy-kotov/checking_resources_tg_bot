@@ -119,7 +119,7 @@ def last_check(update, context):
     logger.info('***Работает last_check.')
     chat = update.effective_chat
     name = update.message.chat.username
-    message = ''.join(CHECK_RESULT)
+    message = CHECK_RESULT
     context.bot.send_message(
         chat_id=chat.id,
         text=message,
