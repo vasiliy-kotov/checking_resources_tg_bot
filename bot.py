@@ -119,7 +119,7 @@ def last_check(update, context):
     logger.info('***Работает last_check.')
     chat = update.effective_chat
     name = update.message.chat.username
-    message = CHECK_RESULT
+    message = ''.join(CHECK_RESULT)
     context.bot.send_message(
         chat_id=chat.id,
         text=message,
@@ -160,30 +160,19 @@ def subscribe(update, context):
     telegram_ids = get_subscribers_ids()
     logger.debug(f'telegram_ids - {telegram_ids}.')
     tg_setting = config['tg_setting']
-    new_tg_setting = ''
     if tg_id in telegram_ids:
         telegram_ids.remove(tg_id)
         logger.debug('telegram_ids после удаления id - '
                      + f'{telegram_ids}.')
-        for i in range(len(telegram_ids)):
-            if i != (len(telegram_ids) - 1):
-                new_tg_setting += (str(telegram_ids[i]) + ',')
-            else:
-                new_tg_setting += str(telegram_ids[i])
         message = ('Вы отписались от рассылки сообщений от бота.')
         logger.info(f'Пользователь {name} отписалися от рассылки.')
     else:
         telegram_ids.append(tg_id)
         logger.debug('telegram_ids id после добавления - '
                      + f'{telegram_ids}.')
-        for i in range(len(telegram_ids)):
-            if i != (len(telegram_ids) - 1):
-                new_tg_setting += (str(telegram_ids[i]) + ',')
-            else:
-                new_tg_setting += str(telegram_ids[i])
         message = ('Вы подписались на рассылку сообщений от бота.')
         logger.info(f'Пользователь {name} подписался на рассылку.')
-    tg_setting['subscription_tg_ids'] = new_tg_setting
+    tg_setting['subscription_tg_ids'] = ",".join(str(id) for id in telegram_ids)
     with open('setup.cfg', 'w', encoding='utf-8') as configfile:
         config.write(configfile)
     context.bot.send_message(
