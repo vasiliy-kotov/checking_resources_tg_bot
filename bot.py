@@ -42,6 +42,16 @@ BUTTONS = ReplyKeyboardMarkup(
     [['/bot_settings', '/last_check', '/subscribe']],
     resize_keyboard=True,
 )
+BOT = Bot(token=TELEGRAM_TOKEN)
+
+
+def get_bot():
+    """Проверяет запуск бота и выбрасывает исключение при ошибки запуска."""
+    if not BOT:
+        message = f'Ошибка инициализации объекта BOT - {BOT}.'
+        logger.error(message, exc_info=True)
+        raise MyCustomError(message)
+    return BOT
 
 
 def get_subscribers_ids():
@@ -58,29 +68,21 @@ def get_subscribers_ids():
     return telegram_subscriber_ids
 
 
-def send_message_admin(bot, message):
+def send_message_admin(message):
     """Отправляет сообщение в Telegram чат админа."""
     logger.info('***Работает send_message_admin.')
-    if not bot:
-        message = f'Ошибка инициализации объекта bot - {bot}.'
-        logger.error(message, exc_info=True)
-        raise MyCustomError(message)
-    else:
-        bot.send_message(chat_id=TELEGRAM_ADMIN_ID, text=message,)
-        logger.info(f'Админу отправлено сообщение - "{message}".')
+    bot = get_bot()
+    bot.send_message(chat_id=TELEGRAM_ADMIN_ID, text=message,)
+    logger.info(f'Админу отправлено сообщение - "{message}".')
 
 
 def send_message(bot, message, telegram_ids):
     """Отправляет сообщение в Telegram-чаты участников процесса."""
     logger.info('***Работает send_message.')
-    if not bot:
-        message = f'Ошибка инициализации объекта bot - {bot}.'
-        logger.error(message, exc_info=True)
-        raise MyCustomError(message)
-    else:
-        for t in telegram_ids:
-            bot.send_message(chat_id=t, text=message,)
-        logger.info(f'Получателям отправлено сообщение - "{message}".')
+    bot = get_bot()
+    for t in telegram_ids:
+        bot.send_message(chat_id=t, text=message,)
+    logger.info(f'Получателям отправлено сообщение - "{message}".')
 
 
 def check_status_resource(bot, endpoint, telegram_ids):
@@ -201,7 +203,6 @@ def main():
     logger.info('Проверка токенов завершилась успешно.')
     while True:
         try:
-            bot = Bot(token=TELEGRAM_TOKEN)
             updater = Updater(token=TELEGRAM_TOKEN)
             date_time = DT_MOSCOW.strftime('%d.%m.%Y %H:%M')
             logger.info(f'date_time - {date_time}.')
