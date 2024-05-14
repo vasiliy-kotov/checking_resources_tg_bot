@@ -1,0 +1,31 @@
+[flake8]
+ignore = 
+	W503,
+	D100,
+	D205,
+	D401
+filename = 
+	./bot.py
+exclude = 
+	tests/,
+	venv/,
+	env/
+max-complexity = 10
+
+[default]
+retry_time = 4
+
+[tg_setting]
+admin_tg_id = 123456789
+subscription_tg_ids = 123456789,012345678
+tzone = Europe/Moscow
+endpoints = 
+	https://общее-дело.рф/,
+	https://vk.com/obsheedelorf,
+
+[log_setting]
+log_level = INFO
+log_format = %%(asctime)s - %%(levelname)s - %%(message)s - %%(funcName)s - %%(lineno)d
+logs_directory_path = logs\\
+log_size = 50000000
+backup_сount = 2
